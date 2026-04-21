@@ -9,7 +9,6 @@ from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, Descriptors
 from rdkit.Chem import rdFingerprintGenerator
 from rdkit.Chem.Draw import rdMolDraw2D
-import base64
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -296,7 +295,8 @@ def load_models():
     return result
 
 
-def mol_to_png_b64(mol, pred_class, size=(420, 280)):
+def mol_to_svg(mol, pred_class, size=(420, 280)):
+    """Returns SVG string — works without Cairo on all platforms."""
     info = {}
     AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=2048, bitInfo=info)
     hl_atoms, hl_colors = [], {}
@@ -308,7 +308,7 @@ def mol_to_png_b64(mol, pred_class, size=(420, 280)):
                     (0.78, 0.27, 0.32) if pred_class == 1
                     else (0.22, 0.38, 0.70)
                 )
-    drawer = rdMolDraw2D.MolDraw2DCairo(*size)
+    drawer = rdMolDraw2D.MolDraw2DSVG(*size)
     drawer.drawOptions().addStereoAnnotation = True
     rdMolDraw2D.PrepareAndDrawMolecule(
         drawer, mol,
@@ -316,7 +316,7 @@ def mol_to_png_b64(mol, pred_class, size=(420, 280)):
         highlightAtomColors=hl_colors,
     )
     drawer.FinishDrawing()
-    return base64.b64encode(drawer.GetDrawingText()).decode()
+    return drawer.GetDrawingText()
 
 
 def resolve_smiles(smiles=None, chembl_id=None, inchikey=None):
@@ -408,7 +408,7 @@ def predict(smiles, models, threshold):
         "Rot. bonds":  Chem.rdMolDescriptors.CalcNumRotatableBonds(mol),
     }
 
-    img_b64 = mol_to_png_b64(mol, pred_class)
+    mol_svg = mol_to_svg(mol, pred_class)
 
     return {
         "pred_class":  pred_class,
@@ -421,7 +421,7 @@ def predict(smiles, models, threshold):
         "rf_w":        round(1 - best_w, 2),
         "top_sim":     round(top_sim, 3),
         "smiles":      smiles,
-        "img_b64":     img_b64,
+        "mol_svg":     mol_svg,
         "props":       props,
         "mode":        "ensemble" if gnn_prob is not None else "rf_only",
     }
@@ -581,7 +581,7 @@ with right:
 
                     with col_mol:
                         st.markdown('<div class="card"><div class="card-title">Structure</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="mol-box"><img src="data:image/png;base64,{r["img_b64"]}"/></div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="mol-box" style="background:white;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">{r["mol_svg"]}</div>', unsafe_allow_html=True)
                         st.markdown(f'<div class="smiles-code">{r["smiles"]}</div>', unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
 
