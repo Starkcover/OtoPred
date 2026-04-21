@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import pandas as pd
 import torch
@@ -449,15 +450,28 @@ def predict(smiles, models, threshold):
     }
 
 
+def fill_color(cls):
+    colors = {
+        "fill-tox":  "linear-gradient(90deg,#ef4444,#f87171)",
+        "fill-safe": "linear-gradient(90deg,#10b981,#34d399)",
+        "fill-conf": "linear-gradient(90deg,#2563eb,#60a5fa)",
+        "fill-gnn":  "linear-gradient(90deg,#7c3aed,#a78bfa)",
+        "fill-rf":   "linear-gradient(90deg,#d97706,#fbbf24)",
+    }
+    return colors.get(cls, "linear-gradient(90deg,#94a3b8,#cbd5e1)")
+
 def prob_bar(name, pct, fill_cls, note=""):
     note_html = f'<p style="font-size:11px;color:#94a3b8;margin-top:.2rem">{note}</p>' if note else ""
+    bg = fill_color(fill_cls)
+    name_html = f'<span style="font-size:12px;color:#64748b;font-weight:500">{name}</span>' if name else ""
+    pct_html  = f'<span style="font-size:13px;font-weight:600;color:#1e293b">{pct}%</span>' if name else ""
+    meta = f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.28rem">{name_html}{pct_html}</div>' if name else ""
     return f"""
-    <div class="prob-wrap">
-      <div class="prob-meta">
-        <span class="prob-name">{name}</span>
-        <span class="prob-pct">{pct}%</span>
+    <div style="margin-bottom:.7rem">
+      {meta}
+      <div style="background:#f1f5f9;border-radius:999px;height:6px;overflow:hidden">
+        <div style="height:6px;border-radius:999px;background:{bg};width:{pct}%"></div>
       </div>
-      <div class="track"><div class="{fill_cls}" style="width:{pct}%"></div></div>
       {note_html}
     </div>"""
 
@@ -571,109 +585,152 @@ with right:
                     fill_main = "fill-tox"    if tox else "fill-safe"
                     thresh_rel = "above" if tox else "below"
 
-                    # ── 1. Verdict + summary card ─────────────────────────────
-                    st.markdown(f"""
-                    <div class="card">
-                      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.1rem">
-                        <div class="{pill_cls}">
-                          <div class="{dot_cls}"></div>[{verdict}]
-                        </div>
-                        <span class="mode-tag">{r["mode"].replace("_"," ")}</span>
-                      </div>
+                    # Build verdict colours
+                    v_color  = "#dc2626" if tox else "#059669"
+                    v_bg     = "#fee2e2" if tox else "#d1fae5"
+                    v_border = "#fca5a5" if tox else "#6ee7b7"
+                    ens_bg   = fill_color(fill_main)
+                    non_tox_pct = round(100 - r["ens_prob"], 1)
 
-                      <div class="detail-row">
-                        <span class="detail-lbl">Verdict</span>
-                        <span class="detail-val" style="color:{'#dc2626' if tox else '#059669'};font-weight:600">[{verdict}]</span>
-                      </div>
-                      <div class="detail-row">
-                        <span class="detail-lbl">Ensemble probability</span>
-                        <span class="detail-val">{r["ens_prob"]}%
-                          <span class="detail-sub">(threshold: {r["threshold"]}% · {thresh_rel})</span>
-                        </span>
-                      </div>
-                      <div class="detail-row">
-                        <span class="detail-lbl">Confidence</span>
-                        <span class="detail-val">{r["confidence"]}%</span>
-                      </div>
-                      <div class="detail-row">
-                        <span class="detail-lbl">Nearest training similarity</span>
-                        <span class="detail-val">{r["top_sim"]}</span>
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # ── 2. Probability breakdown bars ─────────────────────────
-                    st.markdown(f"""
-                    <div class="card">
-                      <div class="card-title">Probability breakdown</div>
-
-                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:1rem">
-                        <div class="pct-box {'pct-box-tox' if tox else 'pct-box-safe'}">
-                          <div class="pct-box-label">Ototoxic</div>
-                          <div class="pct-box-val">{r["ens_prob"]}%</div>
-                        </div>
-                        <div class="pct-box pct-box-neutral">
-                          <div class="pct-box-label">Non-toxic</div>
-                          <div class="pct-box-val">{round(100 - r["ens_prob"], 1)}%</div>
-                        </div>
-                      </div>
-
-                      {prob_bar("Ototoxic probability (ensemble)", r["ens_prob"], fill_main,
-                                f"Threshold: {r['threshold']}% · {thresh_rel} threshold")}
-                      {prob_bar("Confidence", r["confidence"], "fill-conf")}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # ── 3. Model contribution breakdown ───────────────────────
+                    # Model contributions block
+                    contrib_html = ""
                     if r["mode"] == "ensemble":
-                        st.markdown(f"""
-                        <div class="card">
-                          <div class="card-title">Model contributions</div>
-
-                          <div class="detail-row" style="margin-bottom:.6rem">
-                            <span class="detail-lbl">GNN contribution</span>
-                            <span class="detail-val">{r["gnn_prob"]}%
-                              <span class="detail-sub">(weight: {r["best_w"]})</span>
+                        contrib_html = f"""
+                        <div style="{CARD}margin-top:1rem">
+                          <p style="{CTITLE}">Model contributions</p>
+                          <div style="{DROW}">
+                            <span style="{DLBL}">GNN contribution</span>
+                            <span style="{DVAL}">{r["gnn_prob"]}%
+                              <span style="{DSUB}">(weight: {r["best_w"]})</span>
                             </span>
                           </div>
                           {prob_bar("", r["gnn_prob"], "fill-gnn")}
-
-                          <div class="detail-row" style="margin-top:.8rem;margin-bottom:.6rem">
-                            <span class="detail-lbl">RF contribution</span>
-                            <span class="detail-val">{r["rf_prob"]}%
-                              <span class="detail-sub">(weight: {r["rf_w"]})</span>
+                          <div style="{DROW}margin-top:.6rem">
+                            <span style="{DLBL}">RF contribution</span>
+                            <span style="{DVAL}">{r["rf_prob"]}%
+                              <span style="{DSUB}">(weight: {r["rf_w"]})</span>
                             </span>
                           </div>
                           {prob_bar("", r["rf_prob"], "fill-rf")}
-
-                          <div class="detail-row" style="margin-top:.8rem">
-                            <span class="detail-lbl">Ensemble (weighted)</span>
-                            <span class="detail-val">{r["ens_prob"]}%
-                              <span class="detail-sub">= {r["best_w"]} × GNN + {r["rf_w"]} × RF</span>
+                          <div style="{DROW}margin-top:.6rem">
+                            <span style="{DLBL}">Ensemble (weighted)</span>
+                            <span style="{DVAL}">{r["ens_prob"]}%
+                              <span style="{DSUB}">= {r["best_w"]} × GNN + {r["rf_w"]} × RF</span>
                             </span>
                           </div>
                           {prob_bar("", r["ens_prob"], fill_main)}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        </div>"""
 
-                    # ── 4. Structure + properties ─────────────────────────────
+                    # Props rows
+                    props_rows = "".join(
+                        f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem .75rem;margin-bottom:.4rem">' +
+                        f'<div style="font-size:11px;color:#94a3b8;margin-bottom:.15rem">{k}</div>' +
+                        f'<div style="font-size:14px;font-weight:600;color:#1e293b">{v}</div></div>'
+                        for k, v in r["props"].items()
+                    )
+
+                    # Inline style constants
+                    CARD   = "background:white;border:1px solid #e2e8f0;border-radius:12px;padding:1.2rem 1.4rem;box-shadow:0 1px 3px rgba(0,0,0,.07);"
+                    CTITLE = "font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:0 0 .8rem;padding-bottom:.4rem;border-bottom:1px solid #f1f5f9;"
+                    DROW   = "display:flex;justify-content:space-between;align-items:baseline;padding:.32rem 0;border-bottom:1px solid #f8fafc;"
+                    DLBL   = "font-size:12px;color:#64748b;font-weight:500;"
+                    DVAL   = "font-size:13px;font-weight:600;color:#1e293b;text-align:right;"
+                    DSUB   = "font-size:11px;color:#94a3b8;font-weight:400;margin-left:.3rem;"
+
+                    full_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+         margin: 0; padding: 0; background: transparent; }}
+</style></head><body>
+
+<div style="{CARD}">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.1rem">
+    <div style="display:inline-flex;align-items:center;gap:.35rem;background:{v_bg};color:{v_color};
+                border:1px solid {v_border};border-radius:999px;padding:.4rem 1rem;font-size:14px;font-weight:600">
+      <div style="width:7px;height:7px;background:{v_color};border-radius:50%"></div>
+      [{verdict}]
+    </div>
+    <span style="font-size:11px;padding:.22rem .55rem;background:#f8fafc;color:#64748b;
+                 border:1px solid #e2e8f0;border-radius:4px">{r["mode"].replace("_"," ")}</span>
+  </div>
+  <div style="{DROW}">
+    <span style="{DLBL}">Verdict</span>
+    <span style="{DVAL}color:{v_color}">[{verdict}]</span>
+  </div>
+  <div style="{DROW}">
+    <span style="{DLBL}">Ensemble probability</span>
+    <span style="{DVAL}">{r["ens_prob"]}%
+      <span style="{DSUB}">(threshold: {r["threshold"]}% · {thresh_rel})</span>
+    </span>
+  </div>
+  <div style="{DROW}">
+    <span style="{DLBL}">GNN contribution</span>
+    <span style="{DVAL}">{r["gnn_prob"]}%
+      <span style="{DSUB}">(weight: {r["best_w"]})</span>
+    </span>
+  </div>
+  <div style="{DROW}">
+    <span style="{DLBL}">RF contribution</span>
+    <span style="{DVAL}">{r["rf_prob"]}%
+      <span style="{DSUB}">(weight: {r["rf_w"]})</span>
+    </span>
+  </div>
+  <div style="{DROW}">
+    <span style="{DLBL}">Confidence</span>
+    <span style="{DVAL}">{r["confidence"]}%</span>
+  </div>
+  <div style="{DROW}border-bottom:none">
+    <span style="{DLBL}">Nearest training similarity</span>
+    <span style="{DVAL}">{r["top_sim"]}</span>
+  </div>
+</div>
+
+<div style="{CARD}margin-top:1rem">
+  <p style="{CTITLE}">Probability breakdown</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:1rem">
+    <div style="border-radius:10px;padding:.75rem 1rem;text-align:center;
+                background:{v_bg};border:1px solid {v_border}">
+      <div style="font-size:11px;color:#64748b;font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">Ototoxic</div>
+      <div style="font-size:22px;font-weight:700;color:{v_color}">{r["ens_prob"]}%</div>
+    </div>
+    <div style="border-radius:10px;padding:.75rem 1rem;text-align:center;
+                background:#f1f5f9;border:1px solid #e2e8f0">
+      <div style="font-size:11px;color:#64748b;font-weight:500;text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">Non-toxic</div>
+      <div style="font-size:22px;font-weight:700;color:#1e293b">{non_tox_pct}%</div>
+    </div>
+  </div>
+
+  {prob_bar("Ototoxic probability (ensemble)", r["ens_prob"], fill_main,
+            f"Threshold: {{r['threshold']}}% · {thresh_rel} threshold")}
+  {prob_bar("Confidence", r["confidence"], "fill-conf")}
+</div>
+
+{contrib_html}
+
+</body></html>"""
+
+                    components.html(full_html, height=680 if r["mode"]=="ensemble" else 480, scrolling=False)
+
+                    # Structure + properties (use st.markdown — SVG/simple HTML is fine)
                     col_mol, col_props = st.columns([3, 2])
-
                     with col_mol:
-                        st.markdown('<div class="card"><div class="card-title">Structure</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">{r["mol_svg"]}</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="smiles-code">{r["smiles"]}</div>', unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-
+                        st.markdown("**Structure**")
+                        st.markdown(
+                            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">{r["mol_svg"]}</div>',
+                            unsafe_allow_html=True
+                        )
+                        st.code(r["smiles"], language=None)
                     with col_props:
-                        st.markdown('<div class="card"><div class="card-title">Molecular properties</div>', unsafe_allow_html=True)
+                        st.markdown("**Molecular properties**")
                         for k, v in r["props"].items():
-                            st.markdown(f"""
-                            <div class="prop-card" style="margin-bottom:.4rem">
-                              <div class="prop-lbl">{k}</div>
-                              <div class="prop-val">{v}</div>
-                            </div>""", unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown(
+                                f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:.5rem .75rem;margin-bottom:.4rem">' +
+                                f'<div style="font-size:11px;color:#94a3b8">{k}</div>' +
+                                f'<div style="font-size:14px;font-weight:600;color:#1e293b">{v}</div></div>',
+                                unsafe_allow_html=True
+                            )
 
             except Exception as e:
                 st.error(f"Prediction failed: {e}")
