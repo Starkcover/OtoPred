@@ -158,6 +158,28 @@ html, body, [class*="css"] {
 /* ── Example buttons ── */
 .ex-row { display:flex; flex-wrap:wrap; gap:.4rem; }
 
+/* ── Detail rows ── */
+.detail-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: .35rem 0; border-bottom: 1px solid #f1f5f9;
+    margin-bottom: .1rem;
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-lbl { font-size: 12px; color: #64748b; font-weight: 500; }
+.detail-val { font-size: 13px; font-weight: 600; color: #1e293b; text-align: right; }
+.detail-sub { font-size: 11px; color: #94a3b8; font-weight: 400; margin-left: .3rem; }
+
+/* ── Percentage boxes ── */
+.pct-box {
+    border-radius: 10px; padding: .75rem 1rem;
+    text-align: center; border: 1px solid transparent;
+}
+.pct-box-tox   { background: #fee2e2; border-color: #fca5a5; }
+.pct-box-safe  { background: #d1fae5; border-color: #6ee7b7; }
+.pct-box-neutral { background: #f1f5f9; border-color: #e2e8f0; }
+.pct-box-label { font-size: 11px; color: #64748b; font-weight: 500; margin-bottom: .2rem; text-transform: uppercase; letter-spacing: .04em; }
+.pct-box-val   { font-size: 22px; font-weight: 700; color: #1e293b; }
+
 /* Override streamlit button */
 div[data-testid="stButton"] button {
     border-radius: 999px !important;
@@ -542,46 +564,104 @@ with right:
                 else:
                     r = predict(resolved, models, threshold)
 
-                    tox = r["pred_class"] == 1
+                    tox       = r["pred_class"] == 1
                     pill_cls  = "verdict-tox" if tox else "verdict-safe"
-                    dot_cls   = "vdot-tox" if tox else "vdot-safe"
-                    verdict   = "Ototoxic" if tox else "Non-toxic"
-                    fill_main = "fill-tox" if tox else "fill-safe"
+                    dot_cls   = "vdot-tox"    if tox else "vdot-safe"
+                    verdict   = "OTOTOXIC"    if tox else "NON-TOXIC"
+                    fill_main = "fill-tox"    if tox else "fill-safe"
+                    thresh_rel = "above" if tox else "below"
 
-                    # Result card
+                    # ── 1. Verdict + summary card ─────────────────────────────
                     st.markdown(f"""
                     <div class="card">
-                      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+                      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.1rem">
                         <div class="{pill_cls}">
-                          <div class="{dot_cls}"></div>{verdict}
+                          <div class="{dot_cls}"></div>[{verdict}]
                         </div>
                         <span class="mode-tag">{r["mode"].replace("_"," ")}</span>
                       </div>
-                      {prob_bar("Ototoxic probability", r["ens_prob"], fill_main,
-                                f"Threshold: {r['threshold']}% · {'above' if tox else 'below'} threshold")}
+
+                      <div class="detail-row">
+                        <span class="detail-lbl">Verdict</span>
+                        <span class="detail-val" style="color:{'#dc2626' if tox else '#059669'};font-weight:600">[{verdict}]</span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-lbl">Ensemble probability</span>
+                        <span class="detail-val">{r["ens_prob"]}%
+                          <span class="detail-sub">(threshold: {r["threshold"]}% · {thresh_rel})</span>
+                        </span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-lbl">Confidence</span>
+                        <span class="detail-val">{r["confidence"]}%</span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-lbl">Nearest training similarity</span>
+                        <span class="detail-val">{r["top_sim"]}</span>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # ── 2. Probability breakdown bars ─────────────────────────
+                    st.markdown(f"""
+                    <div class="card">
+                      <div class="card-title">Probability breakdown</div>
+
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:1rem">
+                        <div class="pct-box {'pct-box-tox' if tox else 'pct-box-safe'}">
+                          <div class="pct-box-label">Ototoxic</div>
+                          <div class="pct-box-val">{r["ens_prob"]}%</div>
+                        </div>
+                        <div class="pct-box pct-box-neutral">
+                          <div class="pct-box-label">Non-toxic</div>
+                          <div class="pct-box-val">{round(100 - r["ens_prob"], 1)}%</div>
+                        </div>
+                      </div>
+
+                      {prob_bar("Ototoxic probability (ensemble)", r["ens_prob"], fill_main,
+                                f"Threshold: {r['threshold']}% · {thresh_rel} threshold")}
                       {prob_bar("Confidence", r["confidence"], "fill-conf")}
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # Model breakdown (if ensemble)
+                    # ── 3. Model contribution breakdown ───────────────────────
                     if r["mode"] == "ensemble":
                         st.markdown(f"""
                         <div class="card">
-                          <div class="card-title">Model breakdown</div>
-                          {prob_bar(f'GNN <span style="color:#94a3b8;font-size:11px">(weight {r["best_w"]})</span>',
-                                    r["gnn_prob"], "fill-gnn")}
-                          {prob_bar(f'Random Forest <span style="color:#94a3b8;font-size:11px">(weight {r["rf_w"]})</span>',
-                                    r["rf_prob"], "fill-rf",
-                                    f"Nearest training drug similarity: {r['top_sim']}")}
+                          <div class="card-title">Model contributions</div>
+
+                          <div class="detail-row" style="margin-bottom:.6rem">
+                            <span class="detail-lbl">GNN contribution</span>
+                            <span class="detail-val">{r["gnn_prob"]}%
+                              <span class="detail-sub">(weight: {r["best_w"]})</span>
+                            </span>
+                          </div>
+                          {prob_bar("", r["gnn_prob"], "fill-gnn")}
+
+                          <div class="detail-row" style="margin-top:.8rem;margin-bottom:.6rem">
+                            <span class="detail-lbl">RF contribution</span>
+                            <span class="detail-val">{r["rf_prob"]}%
+                              <span class="detail-sub">(weight: {r["rf_w"]})</span>
+                            </span>
+                          </div>
+                          {prob_bar("", r["rf_prob"], "fill-rf")}
+
+                          <div class="detail-row" style="margin-top:.8rem">
+                            <span class="detail-lbl">Ensemble (weighted)</span>
+                            <span class="detail-val">{r["ens_prob"]}%
+                              <span class="detail-sub">= {r["best_w"]} × GNN + {r["rf_w"]} × RF</span>
+                            </span>
+                          </div>
+                          {prob_bar("", r["ens_prob"], fill_main)}
                         </div>
                         """, unsafe_allow_html=True)
 
-                    # Structure + properties
+                    # ── 4. Structure + properties ─────────────────────────────
                     col_mol, col_props = st.columns([3, 2])
 
                     with col_mol:
                         st.markdown('<div class="card"><div class="card-title">Structure</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="mol-box" style="background:white;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">{r["mol_svg"]}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">{r["mol_svg"]}</div>', unsafe_allow_html=True)
                         st.markdown(f'<div class="smiles-code">{r["smiles"]}</div>', unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
 
